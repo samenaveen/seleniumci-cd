@@ -1,0 +1,10 @@
+<!-- <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd"> -->
+<suite name="UserSuite">
+	<test name="UserTest">
+		<parameter name="browser" value="chrome" />
+		<classes>
+			<class name="tests.CreateUserTest">
+			</class>
+		</classes>
+	</test>
+</suite>

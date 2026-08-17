@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+    <Properties>
+        <Property name="LOG_DIR">./logs</Property>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</Property>
+    </Properties>
+    
+    <Appenders>
+        
+        <!-- Console Appender - Colored Output -->
+        <Console name="ConsoleAppender" target="SYSTEM_OUT">
+            <PatternLayout>
+                <Pattern>%d{HH:mm:ss.SSS} [%t] %highlight{%-5level}{FATAL=red, ERROR=red, WARN=yellow, INFO=green, DEBUG=cyan, TRACE=blue} %style{%logger{36}}{bright,cyan} - %msg%n</Pattern>
+            </PatternLayout>
+        </Console>
+        
+        <!-- File Appender - All Logs -->
+        <File name="FileAppender" fileName="${LOG_DIR}/selenium-automation.log" append="false">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </File>
+        
+    </Appenders>
+    
+    <Loggers>
+        <!-- Root Logger -->
+        <Root level="info">
+            <AppenderRef ref="ConsoleAppender"/>
+            <AppenderRef ref="FileAppender"/>
+        </Root>
+        
+        <!-- Reduce Selenium noise -->
+        <Logger name="org.openqa.selenium" level="warn"/>
+        <Logger name="org.apache.http" level="warn"/>
+    </Loggers>
+    
+</Configuration>

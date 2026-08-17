@@ -1,0 +1,242 @@
+// Advanced Jenkinsfile for Selenium Automation Framework
+// Includes: Email notifications, multiple browsers, parallel execution, and artifacts
+
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'SUITE',
+            choices: ['login', 'user'],
+            description: 'Select test suite to run'
+        )
+        choice(
+            name: 'BROWSER',
+            choices: ['chrome', 'firefox', 'edge'],
+            description: 'Select browser for testing'
+        )
+        booleanParam(
+            name: 'SEND_EMAIL',
+            defaultValue: false,
+            description: 'Send test results via email'
+        )
+    }
+    
+    environment {
+        JAVA_HOME = tool 'Java-21'
+        MAVEN_HOME = tool 'Maven-3.9'
+        PATH = "${MAVEN_HOME}/bin:${JAVA_HOME}/bin:${PATH}"
+        SUITE = "${params.SUITE ?: 'login'}"
+        BROWSER = "${params.BROWSER ?: 'chrome'}"
+        REPORT_DIR = "${WORKSPACE}/reports"
+        LOG_DIR = "${WORKSPACE}/logs"
+    }
+    
+    triggers {
+        // Poll SCM every hour
+        pollSCM('H * * * *')
+        
+        // Or use GitHub webhook (uncomment if using GitHub)
+        // githubPush()
+    }
+    
+    options {
+        // Keep last 20 builds
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+        
+        // Timeout after 45 minutes
+        timeout(time: 45, unit: 'MINUTES')
+        
+        // Disable concurrent builds
+        disableConcurrentBuilds()
+        
+        // Timestamps in console output
+        timestamps()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    echo "========== Checking out code =========="
+                    checkout scm
+                    echo "✓ Code checked out successfully"
+                }
+            }
+        }
+        
+        stage('Environment Check') {
+            steps {
+                script {
+                    echo "========== Verifying Environment =========="
+                    sh 'java -version'
+                    sh 'mvn --version'
+                    echo "Suite: ${SUITE}"
+                    echo "Browser: ${BROWSER}"
+                    echo "✓ Environment check passed"
+                }
+            }
+        }
+        
+        stage('Clean & Build') {
+            steps {
+                script {
+                    echo "========== Building Project =========="
+                    sh 'mvn clean compile -DskipTests -q'
+                    echo "✓ Build completed successfully"
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                script {
+                    echo "========== Running Test Suite: ${SUITE} =========="
+                    try {
+                        sh 'mvn test -Dsuite=${SUITE} -Dbrowser=${BROWSER}'
+                        echo "✓ Tests executed successfully"
+                    } catch (Exception e) {
+                        echo "⚠ Tests execution failed"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Reports') {
+            steps {
+                script {
+                    echo "========== Generating Test Reports =========="
+                    sh '''
+                        if [ -d "${REPORT_DIR}" ]; then
+                            echo "Report directory exists"
+                        else
+                            mkdir -p ${REPORT_DIR}
+                        fi
+                    '''
+                    echo "✓ Report directories prepared"
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                echo "========== Post Build Actions =========="
+                
+                // Publish TestNG results
+                junit testResults: 'target/surefire-reports/*.xml', 
+                      allowEmptyResults: true,
+                      skipPublishingChecks: true
+                
+                // Archive test reports
+                archiveArtifacts artifacts: 'reports/**/*.html,logs/**/*.log',
+                                 allowEmptyArchive: true,
+                                 fingerprint: true
+                
+                // Archive screenshots
+                archiveArtifacts artifacts: 'reports/screenshots/**/*',
+                                 allowEmptyArchive: true
+                
+                // Publish Extent Report
+                publishHTML([
+                    reportDir: 'reports',
+                    reportFiles: '*.html',
+                    reportName: 'Extent Test Report',
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true
+                ])
+                
+                echo "✓ Reports archived"
+            }
+        }
+        
+        success {
+            script {
+                echo "========== BUILD SUCCESSFUL =========="
+                echo "All tests passed. Detailed reports are available."
+                
+                if (params.SEND_EMAIL) {
+                    emailext(
+                        to: '${DEFAULT_RECIPIENTS}',
+                        subject: "✓ Tests Passed - Build #${BUILD_NUMBER}",
+                        body: '''
+                            All tests have passed successfully!
+                            
+                            Build Details:
+                            - Build Number: ${BUILD_NUMBER}
+                            - Build URL: ${BUILD_URL}
+                            - Suite: ${SUITE}
+                            - Browser: ${BROWSER}
+                            
+                            View detailed report: ${BUILD_URL}Extent_Test_Report/
+                        '''.stripIndent(),
+                        attachmentsPattern: 'reports/*.html'
+                    )
+                }
+            }
+        }
+        
+        unstable {
+            script {
+                echo "========== BUILD UNSTABLE (SOME TESTS FAILED) =========="
+                echo "Review the test reports for failure details."
+                
+                if (params.SEND_EMAIL) {
+                    emailext(
+                        to: '${DEFAULT_RECIPIENTS}',
+                        subject: "⚠ Tests Failed - Build #${BUILD_NUMBER}",
+                        body: '''
+                            Some tests have failed.
+                            
+                            Build Details:
+                            - Build Number: ${BUILD_NUMBER}
+                            - Build URL: ${BUILD_URL}
+                            - Suite: ${SUITE}
+                            - Browser: ${BROWSER}
+                            
+                            View detailed report: ${BUILD_URL}Extent_Test_Report/
+                            
+                            Failed Tests: See attached HTML report
+                        '''.stripIndent(),
+                        attachmentsPattern: 'reports/*.html,target/surefire-reports/*.xml'
+                    )
+                }
+            }
+        }
+        
+        failure {
+            script {
+                echo "========== BUILD FAILED =========="
+                echo "Build failed during compilation or setup."
+                
+                if (params.SEND_EMAIL) {
+                    emailext(
+                        to: '${DEFAULT_RECIPIENTS}',
+                        subject: "✗ Build Failed - Build #${BUILD_NUMBER}",
+                        body: '''
+                            Build has failed. Check console output for error details.
+                            
+                            Build Details:
+                            - Build Number: ${BUILD_NUMBER}
+                            - Build URL: ${BUILD_URL}
+                            - Suite: ${SUITE}
+                            - Browser: ${BROWSER}
+                            
+                            Console Output: ${BUILD_URL}console
+                        '''.stripIndent()
+                    )
+                }
+            }
+        }
+        
+        cleanup {
+            script {
+                echo "========== Cleanup =========="
+                cleanWs()
+                echo "✓ Workspace cleaned"
+            }
+        }
+    }
+}
