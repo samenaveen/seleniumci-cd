@@ -1,0 +1,35 @@
+name: Scheduled Selenium Tests
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  selenium-tests:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        test-suite: [login, smoke, regression]
+        java-version: ['21']
+        browser: [chrome, firefox]
+      max-parallel: 6
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin'
+          cache: maven
+      - run: mvn clean install -DskipTests
+      - run: mvn test -Dsuite=${{ matrix.test-suite }} -Dbrowser=${{ matrix.browser }}
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selenium-test-results-${{ matrix.test-suite }}-${{ matrix.browser }}
+          path: target/surefire-reports/
+          retention-days: 30
